@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Keyboard Monitor Overlay</title>
+    <style>
+        :root {
+            --bg-color: rgba(15, 15, 20, 0.7);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-color: #ffffff;
+            --accent-color: #00d2ff;
+            --glow-color: rgba(0, 210, 255, 0.5);
+            --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            overflow: hidden;
+            background: transparent;
+            font-family: var(--font-family);
+            color: var(--text-color);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            pointer-events: none;
+        }
+
+        #history {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: fit-content;
+        }
+
+        .combo-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-color);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 10px 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            animation: slideIn 0.3s cubic-bezier(0.17, 0.67, 0.83, 1) forwards;
+            transform-origin: left bottom;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px) scale(0.95);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0) scale(1);
+            }
+        }
+
+        @keyframes fadeOut {
+            to {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+        }
+
+        .key {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 1.1rem;
+            min-width: 24px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            text-transform: uppercase;
+        }
+
+        .separator {
+            color: var(--accent-color);
+            font-weight: 900;
+            font-size: 1.2rem;
+            opacity: 0.8;
+            text-shadow: 0 0 10px var(--glow-color);
+        }
+
+        #monitor-panel {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--bg-color);
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            font-size: 0.8rem;
+            width: 180px;
+            display: none;
+            pointer-events: auto;
+        }
+
+        #monitor-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 0.9rem;
+            color: var(--accent-color);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .monitor-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .monitor-label {
+            color: var(--text-color);
+            opacity: 0.6;
+        }
+
+        .monitor-value {
+            color: var(--text-color);
+            font-family: monospace;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 120px;
+            text-align: right;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="monitor-panel">
+        <h3>Keyboard Monitor</h3>
+        <div class="monitor-row">
+            <span class="monitor-label">Last:</span>
+            <span id="mon-keys" class="monitor-value">None</span>
+        </div>
+    </div>
+    <div id="history"></div>
+
+    <script>
+        const historyContainer = document.getElementById('history');
+
+        const params = new URLSearchParams(window.location.search);
+        const showMonitor = params.get('monitor') !== '0';
+
+        if (showMonitor) {
+            document.getElementById('monitor-panel').style.display = 'block';
+        }
+
+        // Handle Direct Events from our C++ plugin
+        window.addEventListener('keyboard_monitor_input', (event) => {
+            console.log('Keyboard event received:', event.detail);
+            
+            let data = event.detail;
+            if (typeof data === 'string') {
+                try {
+                    data = JSON.parse(data);
+                } catch (e) {
+                    console.error('Failed to parse event data:', e);
+                    return;
+                }
+            }
+            
+            if (data && data.key_combination) {
+                processInput(data);
+            }
+        });
+
+        // Broadcast Channel for keyboard events
+        const keyChannel = new BroadcastChannel('keyboard-monitor-keys');
+
+        function updateMonitorUI(value) {
+            if (!showMonitor) return;
+            const el = document.getElementById('mon-keys');
+            if (el) el.textContent = value;
+        }
+
+        keyChannel.onmessage = (e) => updateMonitorUI(e.data);
+
+        function processInput(data) {
+            if (data.key_combination) {
+                addCombination(data.key_combination);
+                keyChannel.postMessage(data.key_combination);
+                updateMonitorUI(data.key_combination);
+            }
+        }
+
+        function addCombination(combo) {
+            const container = document.createElement('div');
+            container.className = 'combo-container';
+
+            const keys = combo.split(' + ');
+
+            keys.forEach((k, i) => {
+                const keyEl = document.createElement('span');
+                keyEl.className = 'key';
+                keyEl.textContent = k;
+                container.appendChild(keyEl);
+
+                if (i < keys.length - 1) {
+                    const sep = document.createElement('span');
+                    sep.className = 'separator';
+                    sep.textContent = ' + ';
+                    container.appendChild(sep);
+                }
+            });
+
+            historyContainer.appendChild(container);
+
+            if (historyContainer.children.length > 5) {
+                historyContainer.removeChild(historyContainer.children[0]);
+            }
+
+            setTimeout(() => {
+                container.style.animation = 'fadeOut 0.5s forwards';
+                setTimeout(() => {
+                    if (container.parentNode) container.remove();
+                }, 500);
+            }, 3000);
+        }
+
+        console.log('Keyboard Monitor Overlay ready');
+    </script>
+</body>
+
+</html>
