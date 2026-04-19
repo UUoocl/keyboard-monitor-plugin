@@ -591,7 +591,7 @@ void linuxKeyboardHookThreadFunc()
 	while (linuxHookRunning) {
 		while (XPending(display)) {
 			XNextEvent(display, &event);
-			if (event.type == KeyPress) {
+			if (event.type == X11_KeyPress) {
 				KeySym keysym = XLookupKeysym(&event.xkey, 0);
 				std::string keyCombination;
 				bool shouldLog = false;
@@ -612,7 +612,7 @@ void linuxKeyboardHookThreadFunc()
 					if (enableLogging) blog(LOG_INFO, "[Keyboard Monitor] Keys pressed: %s", keyCombination.c_str());
 					emitBrowserEvent(keyCombination);
 				}
-			} else if (event.type == KeyRelease) {
+			} else if (event.type == X11_KeyRelease) {
 				KeySym keysym = XLookupKeysym(&event.xkey, 0);
 				std::lock_guard<std::mutex> lock(keyStateMutex);
 				pressedKeys.erase(keysym);
