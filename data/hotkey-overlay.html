@@ -159,24 +159,58 @@
             document.getElementById('monitor-panel').style.display = 'block';
         }
 
-        // Handle Direct Events from our C++ plugin
-        window.addEventListener('keyboard_monitor_input', (event) => {
-            console.log('Keyboard event received:', event.detail);
-            
-            let data = event.detail;
-            if (typeof data === 'string') {
-                try {
-                    data = JSON.parse(data);
-                } catch (e) {
-                    console.error('Failed to parse event data:', e);
-                    return;
-                }
+        // WebSocket Connection to Central Bridge (Secure V3 Handshake)
+        async function connectBridge() {
+            try {
+                // 1. Discovery: Identify the bridge port via HTTP API
+                const res = await fetch('/__lws/ws_port');
+                if (!res.ok) throw new Error('Failed to fetch bridge port');
+                
+                const port = (await res.text()).trim();
+                console.log(`Connecting to Media Warp Bridge on port ${port}...`);
+                
+                const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+
+                socket.onopen = () => {
+                    console.log('Bridge connection opened, requesting credentials...');
+                    // 2. Request Handshake: Ask the bridge to emit credentials
+                    socket.send(JSON.stringify({ cmd: "get_obs_credentials" }));
+                };
+
+                socket.onmessage = (msg) => {
+                    try {
+                        const data = JSON.parse(msg.data);
+                        if (data.t === 'keyboard') {
+                            processInput(data);
+                        }
+                    } catch (e) {
+                        console.error('Failed to parse bridge message:', e);
+                    }
+                };
+
+                socket.onclose = () => {
+                    console.warn('Bridge connection lost. Retrying in 2s...');
+                    setTimeout(connectBridge, 2000);
+                };
+
+                socket.onerror = (err) => {
+                    console.error('Bridge socket error:', err);
+                };
+
+            } catch (e) {
+                console.warn('Discovery failed, retrying in 2s...', e);
+                setTimeout(connectBridge, 2000);
             }
-            
-            if (data && data.key_combination) {
-                processInput(data);
-            }
+        }
+
+        // Handle Secure Out-of-Band Callback
+        window.addEventListener('obs_auth', (e) => {
+            const { port, password } = e.detail;
+            console.log(`Received OBS credentials for port ${port}`);
         });
+
+        // Start discovery
+        window.addEventListener('load', () => setTimeout(connectBridge, 1000));
 
         // Broadcast Channel for keyboard events
         const keyChannel = new BroadcastChannel('keyboard-monitor-keys');
@@ -190,10 +224,11 @@
         keyChannel.onmessage = (e) => updateMonitorUI(e.data);
 
         function processInput(data) {
-            if (data.key_combination) {
-                addCombination(data.key_combination);
-                keyChannel.postMessage(data.key_combination);
-                updateMonitorUI(data.key_combination);
+            const combo = data.v; // In the new format, 'v' is the key combination string
+            if (combo) {
+                addCombination(combo);
+                keyChannel.postMessage(combo);
+                updateMonitorUI(combo);
             }
         }
 

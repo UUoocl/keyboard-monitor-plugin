@@ -24,8 +24,6 @@ public:
 	void LoadSettings();
 	void SaveSettings();
 
-	void PopulateBrowserSourceComboBox();
-
 	// Hook management
 	bool isHookEnabled() const { return hookEnabled; }
 	bool enableHook();
@@ -36,7 +34,6 @@ public slots:
 
 private slots:
 	void applySettings();
-	void onDisplayInBrowserSourceToggled(bool checked);
 
 private:
 	void setupUI();
@@ -47,8 +44,6 @@ private:
 	QVBoxLayout *mainLayout;
 	
 	// UI Components
-	QComboBox *browserSourceComboBox;
-	QCheckBox *displayInBrowserSourceCheckBox;
 	QCheckBox *hookEnabledCheckBox;
 	QCheckBox *startWithOBSCheckBox;
 	

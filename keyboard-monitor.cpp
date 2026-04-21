@@ -167,8 +167,6 @@ std::unordered_set<int> whitelistedKeySet;
 bool enableLogging = false;
 std::string keySeparator = " + ";
 std::string lastKeyCombination;
-std::string targetBrowserSource = "";
-bool displayInBrowserSource = true;
 static bool sendKeyboard = true;
 bool startWithOBS = false;
 
@@ -352,81 +350,65 @@ static bool shouldLogCombinationLocked()
 	return true;
 }
 
-void emitBrowserEvent(const std::string &keyCombination)
+void broadcastKeyboardSignal(const std::string &keyCombination)
 {
-	if (!displayInBrowserSource || targetBrowserSource.empty() || targetBrowserSource == "No Browser Sources Found") {
+	if (!sendKeyboard || keyCombination.empty()) {
 		return;
 	}
 
-	obs_data_t *event_data = obs_data_create();
-	if (sendKeyboard && !keyCombination.empty()) {
-		lastKeyCombination = keyCombination;
-		obs_data_set_string(event_data, "key_combination", keyCombination.c_str());
+	obs_data_t *packet = obs_data_create();
+	obs_data_set_string(packet, "t", "keyboard");
+	obs_data_set_string(packet, "a", "input");
+	obs_data_set_string(packet, "v", keyCombination.c_str());
 
-		obs_data_array_t *key_presses_array = obs_data_array_create();
-		{
-			std::lock_guard<std::mutex> lock(keyStateMutex);
-			for (const int key : pressedKeys) {
-				obs_data_t *key_data = obs_data_create();
-				obs_data_set_string(key_data, "key", getKeyName(key).c_str());
-				obs_data_array_push_back(key_presses_array, key_data);
-				obs_data_release(key_data);
-			}
+	obs_data_array_t *key_presses_array = obs_data_array_create();
+	{
+		std::lock_guard<std::mutex> lock(keyStateMutex);
+		for (const int key : pressedKeys) {
+			obs_data_t *key_data = obs_data_create();
+			obs_data_set_string(key_data, "key", getKeyName(key).c_str());
+			obs_data_array_push_back(key_presses_array, key_data);
+			obs_data_release(key_data);
 		}
-		obs_data_set_array(event_data, "key_presses", key_presses_array);
-		obs_data_array_release(key_presses_array);
+	}
+	obs_data_set_array(packet, "keys", key_presses_array);
+	obs_data_array_release(key_presses_array);
+
+	if (enableLogging) {
+		const char *json_data = obs_data_get_json(packet);
+		blog(LOG_INFO, "[Keyboard Monitor] Broadcasting signal: %s", json_data);
 	}
 
-	const char *json_data = obs_data_get_json(event_data);
-	if (enableLogging) blog(LOG_INFO, "[Keyboard Monitor] Emitting event to '%s': %s", targetBrowserSource.c_str(), json_data);
+	signal_handler_t *sh = obs_get_signal_handler();
+	if (sh) {
+		calldata_t cd = {0};
+		calldata_set_ptr(&cd, "packet", packet);
+		signal_handler_signal(sh, "media_warp_transmit", &cd);
+	}
 
-	auto emit_to_source = [](obs_source_t *source, const char *json) {
-		proc_handler_t *ph = obs_source_get_proc_handler(source);
-		if (ph) {
-			calldata_t cd;
-			calldata_init(&cd);
-			calldata_set_string(&cd, "eventName", "keyboard_monitor_input");
-			calldata_set_string(&cd, "event_name", "keyboard_monitor_input");
-			calldata_set_string(&cd, "jsonString", json);
-			calldata_set_string(&cd, "event_data", json);
-			proc_handler_call(ph, "javascript_event", &cd);
-			calldata_free(&cd);
-		} else {
-			blog(LOG_WARNING, "[Keyboard Monitor] Source '%s' has no proc handler", obs_source_get_name(source));
-		}
-	};
+	obs_data_release(packet);
+}
 
-	if (targetBrowserSource == "All Browser Sources") {
-		obs_enum_sources(
-			[](void *data, obs_source_t *source) {
-				const char *id = obs_source_get_id(source);
-				if (id && strcmp(id, "browser_source") == 0) {
-					proc_handler_t *ph = obs_source_get_proc_handler(source);
-					if (ph) {
-						calldata_t cd;
-						calldata_init(&cd);
-						calldata_set_string(&cd, "eventName", "keyboard_monitor_input");
-						calldata_set_string(&cd, "event_name", "keyboard_monitor_input");
-						calldata_set_string(&cd, "jsonString", (const char *)data);
-						calldata_set_string(&cd, "event_data", (const char *)data);
-						proc_handler_call(ph, "javascript_event", &cd);
-						calldata_free(&cd);
-					}
-				}
-				return true;
-			},
-			(void *)json_data);
-	} else {
-		obs_source_t *source = obs_get_source_by_name(targetBrowserSource.c_str());
-		if (source) {
-			emit_to_source(source, json_data);
-			obs_source_release(source);
-		} else {
-			if (enableLogging) blog(LOG_WARNING, "[Keyboard Monitor] Target source '%s' not found", targetBrowserSource.c_str());
+static void on_media_warp_receive(void *data, calldata_t *cd)
+{
+	(void)data;
+	const char *json_str = calldata_string(cd, "json_str");
+	if (!json_str) return;
+
+	obs_data_t *msg = obs_data_create_from_json(json_str);
+	if (!msg) return;
+
+	const char *type = obs_data_get_string(msg, "t");
+	const char *addr = obs_data_get_string(msg, "a");
+
+	if (type && std::string(type) == "control") {
+		if (addr && std::string(addr) == "log_toggle") {
+			enableLogging = !enableLogging;
+			blog(LOG_INFO, "[Keyboard Monitor] Logging toggled via remote: %s", enableLogging ? "ON" : "OFF");
 		}
 	}
 
-	obs_data_release(event_data);
+	obs_data_release(msg);
 }
 
 #ifdef _WIN32
@@ -457,7 +439,7 @@ LRESULT CALLBACK KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 			}
 			if (shouldLog) {
 				if (enableLogging) blog(LOG_INFO, "[Keyboard Monitor] Keys pressed: %s", keyCombination.c_str());
-				emitBrowserEvent(keyCombination);
+				broadcastKeyboardSignal(keyCombination);
 			}
 		} else if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
 			std::lock_guard<std::mutex> lock(keyStateMutex);
@@ -550,7 +532,7 @@ CGEventRef CGEventCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef e
 
 		if (shouldLog) {
 			if (enableLogging) blog(LOG_INFO, "[Keyboard Monitor] Keys pressed: %s", keyCombination.c_str());
-			emitBrowserEvent(keyCombination);
+			broadcastKeyboardSignal(keyCombination);
 		}
 	} else if (type == kCGEventFlagsChanged) {
 		CGKeyCode keyCode = (CGKeyCode)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
@@ -610,7 +592,7 @@ void linuxKeyboardHookThreadFunc()
 				}
 				if (shouldLog) {
 					if (enableLogging) blog(LOG_INFO, "[Keyboard Monitor] Keys pressed: %s", keyCombination.c_str());
-					emitBrowserEvent(keyCombination);
+					broadcastKeyboardSignal(keyCombination);
 				}
 			} else if (event.type == X11_KeyRelease) {
 				KeySym keysym = XLookupKeysym(&event.xkey, 0);
@@ -749,9 +731,6 @@ void loadSingleKeyCaptureSettings(obs_data_t *settings)
 	enableLogging = obs_data_get_bool(settings, "enableLogging");
 	keySeparator = obs_data_get_string(settings, "keySeparator");
 	if (keySeparator.empty()) keySeparator = " + ";
-	targetBrowserSource = obs_data_get_string(settings, "targetBrowserSource");
-	if (targetBrowserSource.empty()) targetBrowserSource = "All Browser Sources";
-	displayInBrowserSource = obs_data_get_bool(settings, "displayInBrowserSource");
 	startWithOBS = obs_data_get_bool(settings, "startWithOBS");
 }
 
@@ -795,6 +774,12 @@ bool obs_module_load()
 	auto action = (QAction *)obs_frontend_add_tools_menu_qaction(obs_module_text("Settings.Title"));
 	QObject::connect(action, &QAction::triggered, []() { OpenSettingsDialog(); });
 	toggleHotkeyId = obs_hotkey_register_frontend("keyboard_monitor_toggle", obs_module_text("Hotkey.Toggle"), toggleHotkeyCallback, nullptr);
+	
+	signal_handler_t *sh = obs_get_signal_handler();
+	if (sh) {
+		signal_handler_connect(sh, "media_warp_receive", on_media_warp_receive, nullptr);
+	}
+
 	obs_frontend_add_event_callback(frontendEventCallback, nullptr);
 	return true;
 }

@@ -35,19 +35,7 @@ void KeyboardSettingsDialog::setupUI()
 	
 	mainLayout->addWidget(hookGroupBox);
 
-	// --- Browser Source Group ---
-	QGroupBox *browserGroupBox = new QGroupBox(obs_module_text("Settings.BrowserGroup"), this);
-	QVBoxLayout *browserLayout = new QVBoxLayout(browserGroupBox);
-
-	displayInBrowserSourceCheckBox = new QCheckBox(obs_module_text("Settings.DisplayInBrowser"), this);
-	browserLayout->addWidget(displayInBrowserSourceCheckBox);
-
-	browserLayout->addWidget(new QLabel(obs_module_text("Settings.TargetSource"), this));
-
-	browserSourceComboBox = new QComboBox(this);
-	browserLayout->addWidget(browserSourceComboBox);
-
-	mainLayout->addWidget(browserGroupBox);
+	mainLayout->addWidget(hookGroupBox);
 
 	// --- Key Capture Settings ---
 	QGroupBox *captureGroupBox = new QGroupBox(obs_module_text("Settings.CaptureGroup"), this);
@@ -103,26 +91,8 @@ void KeyboardSettingsDialog::setupUI()
 	connect(hookEnabledCheckBox, &QCheckBox::toggled, this, [this](bool checked) {
 		if (checked) enableHook(); else disableHook();
 	});
-
-	PopulateBrowserSourceComboBox();
 }
 
-void KeyboardSettingsDialog::PopulateBrowserSourceComboBox()
-{
-	browserSourceComboBox->clear();
-	browserSourceComboBox->addItem("All Browser Sources");
-
-	obs_enum_sources(
-		[](void *data, obs_source_t *source) {
-			const char *id = obs_source_get_id(source);
-			if (id && strcmp(id, "browser_source") == 0) {
-				QComboBox *cb = (QComboBox *)data;
-				cb->addItem(obs_source_get_name(source));
-			}
-			return true;
-		},
-		browserSourceComboBox);
-}
 
 void KeyboardSettingsDialog::LoadSettings()
 {
@@ -137,11 +107,7 @@ void KeyboardSettingsDialog::LoadSettings()
 		hookEnabledCheckBox->setChecked(hookEnabled);
 		startWithOBSCheckBox->setChecked(obs_data_get_bool(settings, "startWithOBS"));
 
-		displayInBrowserSourceCheckBox->setChecked(obs_data_get_bool(settings, "displayInBrowserSource"));
-		
-		QString target = QString::fromUtf8(obs_data_get_string(settings, "targetBrowserSource"));
-		int idx = browserSourceComboBox->findText(target);
-		if (idx != -1) browserSourceComboBox->setCurrentIndex(idx);
+		startWithOBSCheckBox->setChecked(obs_data_get_bool(settings, "startWithOBS"));
 
 		captureNumpadCheckBox->setChecked(obs_data_get_bool(settings, "captureNumpad"));
 		captureNumbersCheckBox->setChecked(obs_data_get_bool(settings, "captureNumbers"));
@@ -162,8 +128,6 @@ void KeyboardSettingsDialog::SaveSettings()
 
 	obs_data_set_bool(settings, "hookEnabled", hookEnabled);
 	obs_data_set_bool(settings, "startWithOBS", startWithOBSCheckBox->isChecked());
-	obs_data_set_bool(settings, "displayInBrowserSource", displayInBrowserSourceCheckBox->isChecked());
-	obs_data_set_string(settings, "targetBrowserSource", browserSourceComboBox->currentText().toUtf8().constData());
 	
 	obs_data_set_bool(settings, "captureNumpad", captureNumpadCheckBox->isChecked());
 	obs_data_set_bool(settings, "captureNumbers", captureNumbersCheckBox->isChecked());
@@ -204,7 +168,3 @@ void KeyboardSettingsDialog::disableHook()
 	SaveSettings();
 }
 
-void KeyboardSettingsDialog::onDisplayInBrowserSourceToggled(bool checked)
-{
-	Q_UNUSED(checked);
-}
