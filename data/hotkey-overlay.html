@@ -160,47 +160,35 @@
         }
 
         // WebSocket Connection to Central Bridge (Secure V3 Handshake)
-        async function connectBridge() {
-            try {
-                // 1. Discovery: Identify the bridge port via HTTP API
-                const res = await fetch('/__lws/ws_port');
-                if (!res.ok) throw new Error('Failed to fetch bridge port');
-                
-                const port = (await res.text()).trim();
-                console.log(`Connecting to Media Warp Bridge on port ${port}...`);
-                
-                const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+        function connectBridge() {
+            const port = window.location.port || '4466';
+            console.log(`Connecting to Media Warp Bridge on port ${port}...`);
+            
+            const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/keyboard`);
 
-                socket.onopen = () => {
-                    console.log('Bridge connection opened, requesting credentials...');
-                    // 2. Request Handshake: Ask the bridge to emit credentials
-                    socket.send(JSON.stringify({ cmd: "get_obs_credentials" }));
-                };
+            socket.onopen = () => {
+                console.log('Bridge connection opened to /ws/keyboard');
+            };
 
-                socket.onmessage = (msg) => {
-                    try {
-                        const data = JSON.parse(msg.data);
-                        if (data.t === 'keyboard') {
-                            processInput(data);
-                        }
-                    } catch (e) {
-                        console.error('Failed to parse bridge message:', e);
+            socket.onmessage = (msg) => {
+                try {
+                    const data = JSON.parse(msg.data);
+                    if (data.t === 'keyboard') {
+                        processInput(data);
                     }
-                };
+                } catch (e) {
+                    console.error('Failed to parse bridge message:', e);
+                }
+            };
 
-                socket.onclose = () => {
-                    console.warn('Bridge connection lost. Retrying in 2s...');
-                    setTimeout(connectBridge, 2000);
-                };
-
-                socket.onerror = (err) => {
-                    console.error('Bridge socket error:', err);
-                };
-
-            } catch (e) {
-                console.warn('Discovery failed, retrying in 2s...', e);
+            socket.onclose = () => {
+                console.warn('Bridge connection lost. Retrying in 2s...');
                 setTimeout(connectBridge, 2000);
-            }
+            };
+
+            socket.onerror = (err) => {
+                console.error('Bridge socket error:', err);
+            };
         }
 
         // Handle Secure Out-of-Band Callback

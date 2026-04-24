@@ -61,7 +61,7 @@ endif()
 
 # Include directories
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${OBS_SHARED_DIR}
 )
 
@@ -118,8 +118,8 @@ endif()
 
 # Version header
 configure_file(
-  ${CMAKE_CURRENT_SOURCE_DIR}/version.h.in
-  ${CMAKE_CURRENT_SOURCE_DIR}/version.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/version.h.in
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/version.h
 )
 
 # Windows installer script template
@@ -132,14 +132,14 @@ endif()
 
 # Sources
 target_sources(${PROJECT_NAME} PRIVATE
-  keyboard-monitor.cpp
-  keyboard-monitor.hpp
-  keyboard-settings-dialog.cpp
-  keyboard-settings-dialog.hpp
-  ui-utils.hpp
-  obs-websocket-api.h
+  src/keyboard-monitor.cpp
+  src/keyboard-monitor.hpp
+  src/keyboard-settings-dialog.cpp
+  src/keyboard-settings-dialog.hpp
+  src/ui-utils.hpp
+  src/obs-websocket-api.h
   resources.qrc
-  version.h
+  src/version.h
 )
 
 # Install / properties depending on build context
